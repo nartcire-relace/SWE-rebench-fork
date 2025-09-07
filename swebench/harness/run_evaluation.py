@@ -50,10 +50,9 @@ from swebench.harness.modal_eval import (
     validate_modal_credentials,
 )
 
-# from swebench.harness.tracto_eval import (
-#     run_instances_tracto,
-#     validate_tracto_credentials,
-# )
+from swebench.harness.tracto_eval import (
+    run_instances_tracto,
+)
 from swebench.harness.test_spec.test_spec import make_test_spec, TestSpec
 from swebench.harness.utils import (
     EvaluationError,
@@ -458,7 +457,7 @@ def main(
     namespace: str | None,
     rewrite_reports: bool,
     modal: bool,
-    # tracto: bool,
+    tracto: bool,
     instance_image_tag: str = "latest",
     report_dir: str = ".",
 ):
@@ -503,14 +502,13 @@ def main(
             run_instances_modal(predictions, dataset, full_dataset, run_id, timeout)
         return
 
-    # if tracto:
-    #     # run instances on Tracto
-    #     if not dataset:
-    #         print("No instances to run.")
-    #     else:
-    #         validate_tracto_credentials()
-    #         run_instances_tracto(predictions, dataset, full_dataset, run_id, timeout)
-    #     return
+    if tracto:
+        # run instances on Tracto
+        if not dataset:
+            print("No instances to run.")
+        else:
+            run_instances_tracto(predictions, dataset, full_dataset, run_id, timeout)
+        return
 
     # run instances locally
     if platform.system() == "Linux":
@@ -629,7 +627,7 @@ if __name__ == "__main__":
     parser.add_argument("--modal", type=str2bool, default=False, help="Run on Modal")
 
     # Traco execution args
-    # parser.add_argument("--tracto", type=str2bool, default=False, help="Run on Tracto")
+    parser.add_argument("--tracto", type=str2bool, default=False, help="Run on Tracto")
 
     args = parser.parse_args()
     main(**vars(args))
