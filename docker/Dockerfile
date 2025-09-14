@@ -1,4 +1,6 @@
-FROM python:3.10
+FROM python:3.10-bookworm
+
+RUN apt update && apt -y install podman
 
 WORKDIR /SWE-bench
 

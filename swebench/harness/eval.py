@@ -62,6 +62,8 @@ def run_instance(
     run_id: str,
     timeout: int | None = None,
     rewrite_reports: bool = False,
+    container_kwargs: dict | None = None,
+    add_stdout_logger: bool = False,
 ):
     """
     Run a single instance with the given prediction.
@@ -118,14 +120,14 @@ def run_instance(
     # Set up logger
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / LOG_INSTANCE
-    logger = setup_logger(instance_id, log_file)
+    logger = setup_logger(instance_id, log_file, add_stdout=add_stdout_logger)
 
     # Run the instance
     container = None
     try:
         # Build + start instance container (instance image should already be built)
         container = build_container(
-            test_spec, client, run_id, logger, rm_image, force_rebuild
+            test_spec, client, run_id, logger, rm_image, force_rebuild, container_kwargs
         )
         container.start()
         logger.info(f"Container for {instance_id} started: {container.id}")

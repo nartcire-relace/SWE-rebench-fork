@@ -144,9 +144,7 @@ def build_image(
                 buildlog += chunk_stream
             elif "errorDetail" in chunk:
                 # Decode error message, raise BuildError
-                logger.error(
-                    f"Error: {ansi_escape(chunk['errorDetail']['message'])}"
-                )
+                logger.error(f"Error: {ansi_escape(chunk['errorDetail']['message'])}")
                 raise docker.errors.BuildError(
                     chunk["errorDetail"]["message"], buildlog
                 )
@@ -437,6 +435,7 @@ def build_container(
     logger: logging.Logger,
     nocache: bool,
     force_rebuild: bool = False,
+    container_kwargs: dict | None = None,
 ):
     """
     Builds the instance image for the given test spec and creates a container from the image.
@@ -484,6 +483,7 @@ def build_container(
             command="tail -f /dev/null",
             platform=test_spec.platform,
             cap_add=cap_add,
+            **(container_kwargs or {}),
         )
         logger.info(f"Container for {test_spec.instance_id} created: {container.id}")
         return container
