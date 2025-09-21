@@ -33,7 +33,12 @@ TRACTO_EVAL_IMAGE = os.getenv(
     "cr.turing.yt.nebius.yt/home/llm/sbkarasik/registry/swebench-fork:2025-09-14",
 )
 TRACTO_EVAL_MAX_PARALLEL_JOBS = int(os.getenv("TRACTO_EVAL_MAX_PARALLEL_JOBS", "100"))
-TRACTO_EVAL_TMPFS_SIZE_GB = int(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "32"))
+# Some images (e.g. for neurostuff__NiMARE-939, pgmpy__pgmpy-2271) are large and even
+# 32GB tmpfs is not enough to run them.
+# While setting a very large tmpfs for ALL instances in the dataset is wasteful.
+# TODO: Split the dataset into multiple jobs based on the instance image's size.
+# Or, maybe, retry the failed jobs with larger tmpfs.
+TRACTO_EVAL_TMPFS_SIZE_GB = int(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "48"))
 TRACTO_PODMAN_WORKDIR = Path("/slot/sandbox/tmpfs/podman")
 
 yt.config["pickling"]["ignore_system_modules"] = True
@@ -231,6 +236,7 @@ def run_instances_tracto(
         timeout (int): Timeout for running tests
         namespace (str | None):
     """
+    logger.info("Creating test specs...")
     test_specs = [make_test_spec(instance, namespace) for instance in instances]
 
     run_test_specs: list[TestSpec] = []
@@ -264,12 +270,14 @@ def run_instances_tracto(
             )
             for test_spec in run_test_specs
         ]
+        logger.info(f"Writing input table to Tracto at {input_table_path}...")
         yt.write_table_structured(
             table=input_table_path,
             row_type=TestInput,
             input_stream=source_table_rows,
         )
 
+        logger.info("Running map job on Tracto...")
         yt.run_map(
             RunInstanceTracto(),
             input_table_path,
@@ -292,6 +300,7 @@ def run_instances_tracto(
             },
         )
 
+        logger.info(f"Collecting job outputs at {output_table_path}...")
         for result in yt.read_table_structured(output_table_path, TestOutput):
             result = cast(TestOutput, result)
 
@@ -309,4 +318,5 @@ def run_instances_tracto(
                 if text is not None:
                     path.write_text(text)
 
+    logger.info("Generating run report...")
     make_run_report(predictions, full_dataset, run_id)
