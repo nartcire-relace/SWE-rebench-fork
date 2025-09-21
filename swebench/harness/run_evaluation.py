@@ -259,6 +259,7 @@ def main(
 
     # set open file limit
     assert len(run_id) > 0, "Run ID must be provided"
+    # TODO: validate run_id as it's used in container name
     if report_dir is not None:
         report_dir = Path(report_dir)
         if not report_dir.exists():

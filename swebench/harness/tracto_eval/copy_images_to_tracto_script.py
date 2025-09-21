@@ -63,6 +63,8 @@ def process_row(input_row: dict) -> dict:
         "instance_image_key": instance_image_key,
         "tracto_instance_image_key": tracto_instance_image_key,
         "success": success,
+        "operaton_id": os.environ["YT_OPERATION_ID"],
+        "job_id": os.environ["YT_JOB_ID"],
     }
 
 
