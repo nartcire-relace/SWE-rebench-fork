@@ -1,3 +1,15 @@
+"""
+Script to copy instance images to Tracto registry for better evaluation performance.
+
+Example:
+```bash
+python -m swebench.harness.tracto_eval.copy_images_to_tracto \
+    --dataset_name nebius/SWE-rebench-leaderboard  \
+    --namespace swerebench \
+    --tracto-namespace <<tracto registry url>/<<your-subpath>>/swerebench
+```
+"""
+
 import argparse
 import logging
 
