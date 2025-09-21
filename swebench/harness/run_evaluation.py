@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import docker
 import platform
+import os
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from pathlib import Path
 
 if platform.system() == "Linux":
     import resource
 
-from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from pathlib import Path
+import docker
 
 from swebench.harness.constants import (
     KEY_INSTANCE_ID,
@@ -291,7 +292,13 @@ def main(
             print("No instances to run.")
         else:
             run_instances_tracto(
-                predictions, dataset, full_dataset, run_id, timeout, namespace=namespace
+                predictions,
+                dataset,
+                full_dataset,
+                run_id,
+                timeout,
+                namespace=namespace,
+                tracto_run_dir=f"{os.environ['TRACTO_EVAL_RUNS_DIR']}/{run_id}",
             )
         return
 

@@ -24,7 +24,6 @@ from swebench.harness.eval import get_log_dir, run_instance
 from swebench.harness.reporting import make_run_report
 from swebench.harness.test_spec.test_spec import TestSpec, make_test_spec
 
-TRACTO_EVAL_HOME = os.environ["TRACTO_EVAL_HOME"]
 TRACTO_EVAL_IMAGE = os.getenv(
     "TRACTO_EVAL_IMAGE",
     "cr.turing.yt.nebius.yt/home/llm/sbkarasik/registry/swebench-fork:2025-09-14",
@@ -212,6 +211,7 @@ def run_instances_tracto(
     run_id: str,
     timeout: int,
     namespace: str | None,
+    tracto_run_dir: str,
 ):
     """
     Run all instances for the given predictions on Tracto.
@@ -237,16 +237,15 @@ def run_instances_tracto(
         run_test_specs.append(test_spec)
 
     if run_test_specs:
-        run_dir = f"{TRACTO_EVAL_HOME}/{run_id}"
-        input_table_path = f"{run_dir}/input"
-        output_table_path = f"{run_dir}/output"
-        stderr_table_path = f"{run_dir}/stderr"
+        input_table_path = f"{tracto_run_dir}/input"
+        output_table_path = f"{tracto_run_dir}/output"
+        stderr_table_path = f"{tracto_run_dir}/stderr"
 
-        logger.info(f"Tracto run_dir={run_dir}")
+        logger.info(f"tracto_run_dir={tracto_run_dir}")
 
-        if yt.exists(run_dir):
-            raise RuntimeError(f"Tracto run_dir={run_dir} already exists on Tracto")
-        yt.create("map_node", run_dir, recursive=True)
+        if yt.exists(tracto_run_dir):
+            raise RuntimeError(f"{tracto_run_dir=} already exists on Tracto")
+        yt.create("map_node", tracto_run_dir, recursive=True)
 
         source_table_rows = [
             TestInput(
