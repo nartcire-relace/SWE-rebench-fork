@@ -1,6 +1,5 @@
 import os
 import posixpath
-import re
 import requests
 from collections import OrderedDict
 from unidiff import PatchSet
@@ -26,9 +25,11 @@ HEADERS = {
 
 
 @cache
-def get_environment_yml_by_commit(repo: str, commit: str, env_name: str, reqs_paths = None) -> str:
+def get_environment_yml_by_commit(
+    repo: str, commit: str, env_name: str, reqs_paths=None
+) -> str:
     if reqs_paths is None:
-        reqs_paths = MAP_REPO_TO_REQS_PATHS[repo]
+        reqs_paths = MAP_REPO_TO_ENV_YML_PATHS[repo]
 
     for req_path in reqs_paths:
         reqs_url = posixpath.join(SWE_BENCH_URL_RAW, repo, commit, req_path)
@@ -52,7 +53,9 @@ def get_environment_yml_by_commit(repo: str, commit: str, env_name: str, reqs_pa
     return "\n".join(cleaned)
 
 
-def get_environment_yml(instance: SWEbenchInstance, env_name: str, reqs_paths = None) -> str:
+def get_environment_yml(
+    instance: SWEbenchInstance, env_name: str, reqs_paths=None
+) -> str:
     """
     Get environment.yml for given task instance
 
@@ -73,7 +76,7 @@ def get_environment_yml(instance: SWEbenchInstance, env_name: str, reqs_paths = 
 
 
 @cache
-def get_requirements_by_commit(repo: str, commit: str, reqs_paths = None) -> str:
+def get_requirements_by_commit(repo: str, commit: str, reqs_paths=None) -> str:
     all_lines = []
     if reqs_paths is None:
         reqs_paths = MAP_REPO_TO_REQS_PATHS.get(repo, [])
@@ -82,12 +85,12 @@ def get_requirements_by_commit(repo: str, commit: str, reqs_paths = None) -> str
         reqs_url = posixpath.join(SWE_BENCH_URL_RAW, repo, commit, req_path)
         reqs = requests.get(reqs_url, headers=HEADERS)
         if reqs.status_code == 200:
-            all_lines += reqs.text.split('\n')
+            all_lines += reqs.text.split("\n")
     # else:
-        # raise ValueError(
-        #     f"Could not find requirements.txt at paths {MAP_REPO_TO_REQS_PATHS[repo]} for repo {repo} at commit {commit}"
-        # )
-        # return ""
+    # raise ValueError(
+    #     f"Could not find requirements.txt at paths {MAP_REPO_TO_REQS_PATHS[repo]} for repo {repo} at commit {commit}"
+    # )
+    # return ""
 
     if not all_lines:
         return ""
@@ -95,9 +98,12 @@ def get_requirements_by_commit(repo: str, commit: str, reqs_paths = None) -> str
     original_req = []
     additional_reqs = []
     req_dir = "/".join(req_path.split("/")[:-1])
-    exclude_line = lambda line: any(
-        [line.strip().startswith(x) for x in ["-e .", "#", ".[test", "-c"]]
-    ) or line.strip() == "."
+    exclude_line = (
+        lambda line: any(
+            [line.strip().startswith(x) for x in ["-e .", "#", ".[test", "-c"]]
+        )
+        or line.strip() == "."
+    )
 
     for line in all_lines:
         if line.strip().startswith("-r"):
@@ -120,7 +126,9 @@ def get_requirements_by_commit(repo: str, commit: str, reqs_paths = None) -> str
                 original_req.append(line)
 
     # Combine all requirements into single text body
-    get_package_name = lambda line: line.split("==")[0].split(">=")[0].split("<=")[0].strip()
+    get_package_name = (
+        lambda line: line.split("==")[0].split(">=")[0].split("<=")[0].strip()
+    )
     original_req += additional_reqs
 
     deduped = OrderedDict()
@@ -151,10 +159,14 @@ def get_requirements(instance: SWEbenchInstance) -> str:
         else instance["base_commit"]
     )
     reqs_paths = None
-    if "install_config" in instance and instance["install_config"].get("reqs_path") is not None:
+    if (
+        "install_config" in instance
+        and instance["install_config"].get("reqs_path") is not None
+    ):
         reqs_paths = tuple(instance["install_config"].get("reqs_path", []))
 
     return get_requirements_by_commit(instance["repo"], commit, reqs_paths)
+
 
 def get_changed_files(patch: str) -> list[str]:
     """Extract changed or added filenames from a git patch, excluding deleted files."""
@@ -247,7 +259,7 @@ def make_repo_script_list_py(
     if specs.get("install"):
         setup_commands.append(specs["install"])
 
-    # If the setup modifies the repository in any way, it can be 
+    # If the setup modifies the repository in any way, it can be
     # difficult to get a clean diff.  This ensures that `git diff`
     # will only reflect the changes from the user while retaining the
     # original state of the repository plus setup commands.
@@ -352,11 +364,11 @@ def make_eval_script_list_py(
             "test_cmd"
         ]
     test_command = " ".join(
-            [
-                test_cmd,
-                *get_test_directives(instance),
-            ]
-        )
+        [
+            test_cmd,
+            *get_test_directives(instance),
+        ]
+    )
     eval_commands = [
         "source /opt/miniconda3/bin/activate",
         f"conda activate {env_name}",
