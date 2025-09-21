@@ -23,6 +23,10 @@ from swebench.harness.constants import (
 from swebench.harness.eval import get_log_dir, run_instance
 from swebench.harness.reporting import make_run_report
 from swebench.harness.test_spec.test_spec import TestSpec, make_test_spec
+from swebench.harness.tracto_eval.utils import (
+    get_tracto_registry_url,
+    logging_basic_config,
+)
 
 TRACTO_EVAL_IMAGE = os.getenv(
     "TRACTO_EVAL_IMAGE",
@@ -101,11 +105,6 @@ class PodmanDaemon:
         podman_runroot = TRACTO_PODMAN_WORKDIR / "runroot"
         podman_runroot.mkdir(parents=True, exist_ok=True)
 
-        # TODO: login to tracto registry
-        # available env vars in a job:
-        # YT_SECURE_VAULT_docker_auth={username="XXX"; password="XXX"}
-        # YT_SECURE_VAULT_YT_TOKEN
-
         # TODO: configure tracto registry and docker.io as well-known registries in
         # podman, with tracto registry having priority.
 
@@ -148,7 +147,7 @@ class PodmanDaemon:
 
 class RunInstanceTracto(yt.TypedJob):
     def __call__(self, test_input: TestInput) -> Iterable[TestOutput]:
-        logging.basicConfig(level=logging.INFO)
+        logging_basic_config()
 
         test_spec = cast(TestSpec, test_input.test_spec)
         prediction = cast(dict, test_input.prediction)
@@ -157,6 +156,15 @@ class RunInstanceTracto(yt.TypedJob):
 
         with PodmanDaemon() as podman_daemon:
             docker_client = docker.DockerClient(base_url=podman_daemon.socket_url)
+
+            tracto_docker_auth = yson.loads(
+                os.environ["YT_SECURE_VAULT_docker_auth"].encode("utf-8")
+            )
+            docker_client.login(
+                username=tracto_docker_auth["username"],
+                password=tracto_docker_auth["password"],
+                registry=os.environ["TRACTO_REGISTRY_URL"],
+            )
 
             logger.info("Running run_instance...")
 
@@ -272,6 +280,9 @@ def run_instances_tracto(
                 "mapper": {
                     "docker_image": TRACTO_EVAL_IMAGE,
                     "tmpfs_size": TRACTO_EVAL_TMPFS_SIZE_GB * 1024**3,
+                    "environment": {
+                        "TRACTO_REGISTRY_URL": get_tracto_registry_url(),
+                    },
                 },
                 "job_count": len(run_test_specs),  # 1 job per instance
                 "resource_limits": {
