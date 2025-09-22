@@ -1,6 +1,6 @@
 import hashlib
 import json
-import platform
+# import platform
 
 from dataclasses import dataclass
 from typing import Any, Optional, Union, cast
@@ -11,7 +11,7 @@ from swebench.harness.constants import (
     LATEST,
     MAP_REPO_TO_EXT,
     MAP_REPO_VERSION_TO_SPECS,
-    USE_X86,
+    # USE_X86,
     SWEbenchInstance,
 )
 from swebench.harness.dockerfiles import (
@@ -207,9 +207,11 @@ def make_test_spec(
 
     env_name = "testbed"
     repo_directory = f"/{env_name}"
-    if 'install_config' in instance:
-        specs = instance['install_config']
+    if "install_config" in instance:
+        install_config = instance["install_config"]
+        specs = install_config
     else:
+        install_config = None
         specs = MAP_REPO_VERSION_TO_SPECS[repo][version]
     docker_specs = specs.get("docker_specs", {})
 
@@ -224,7 +226,7 @@ def make_test_spec(
     #     # use arm64 unless explicitly specified
     #     arch = "arm64" if instance_id not in USE_X86 else "x86_64"
     # else:
-    
+
     arch = "x86_64"
 
     return TestSpec(
@@ -243,5 +245,5 @@ def make_test_spec(
         base_image_tag=base_image_tag,
         env_image_tag=env_image_tag,
         instance_image_tag=instance_image_tag,
-        install_config=specs
+        install_config=install_config,
     )
