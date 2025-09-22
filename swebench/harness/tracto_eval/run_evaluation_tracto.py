@@ -1,15 +1,14 @@
 # This file contains logic for running evaluations on TractoAI: <https://tracto.ai/>.
 
-import dataclasses
 import logging
 import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Annotated, Iterable, cast
+from typing import Iterable
 
 import docker
-import yt.type_info as ti
+import pydantic
 import yt.wrapper as yt
 from yt import yson
 
@@ -30,7 +29,7 @@ from swebench.harness.tracto_eval.utils import (
 
 TRACTO_EVAL_IMAGE = os.getenv(
     "TRACTO_EVAL_IMAGE",
-    "cr.turing.yt.nebius.yt/home/llm/sbkarasik/registry/swebench-fork:2025-09-14",
+    "cr.turing.yt.nebius.yt/home/llm/sbkarasik/registry/swebench-fork:2025-09-22",
 )
 TRACTO_EVAL_MAX_PARALLEL_JOBS = int(os.getenv("TRACTO_EVAL_MAX_PARALLEL_JOBS", "100"))
 # Some images (e.g. for neurostuff__NiMARE-939, pgmpy__pgmpy-2271) are large and even
@@ -47,36 +46,15 @@ yt.config["pickling"]["dynamic_libraries"]["enable_auto_collection"] = False
 logger = logging.getLogger(__name__)
 
 
-@yt.yt_dataclass
-class TestInput:
-    test_spec: (
-        Annotated[
-            bytes,
-            yt.schema.types.Annotation(
-                ti_type=ti.Yson,
-                to_yt_type=lambda x: yson.dumps(dataclasses.asdict(x)),
-                from_yt_type=lambda x: TestSpec(**yson.loads(x)),
-            ),
-        ]
-        | None
-    )
-    prediction: (
-        Annotated[
-            bytes,
-            yt.schema.types.Annotation(
-                ti_type=ti.Yson,
-                to_yt_type=lambda x: yson.dumps(x),
-                from_yt_type=lambda x: yson.loads(x),
-            ),
-        ]
-        | None
-    )
+class TestInput(pydantic.BaseModel):
+    instance_id: str
+    test_spec: TestSpec
+    prediction: dict
     run_id: str
     timeout: int
 
 
-@yt.yt_dataclass
-class TestOutput:
+class TestOutput(pydantic.BaseModel):
     instance_id: str
     test_output: str | None
     report_json_str: str | None
@@ -150,14 +128,15 @@ class PodmanDaemon:
         self.proc.wait()
 
 
-class RunInstanceTracto(yt.TypedJob):
-    def __call__(self, test_input: TestInput) -> Iterable[TestOutput]:
+class RunInstanceTracto:
+    def __call__(self, test_input_raw: dict) -> Iterable[dict]:
         logging_basic_config()
 
-        test_spec = cast(TestSpec, test_input.test_spec)
-        prediction = cast(dict, test_input.prediction)
+        test_input = TestInput.model_validate(test_input_raw)
 
-        log_dir = get_log_dir(prediction, test_input.run_id, test_spec.instance_id)
+        log_dir = get_log_dir(
+            test_input.prediction, test_input.run_id, test_input.test_spec.instance_id
+        )
 
         with PodmanDaemon() as podman_daemon:
             docker_client = docker.DockerClient(base_url=podman_daemon.socket_url)
@@ -177,8 +156,8 @@ class RunInstanceTracto(yt.TypedJob):
 
             try:
                 run_instance(
-                    test_spec=test_spec,
-                    pred=prediction,
+                    test_spec=test_input.test_spec,
+                    pred=test_input.prediction,
                     rm_image=False,
                     force_rebuild=False,
                     client=docker_client,
@@ -198,8 +177,8 @@ class RunInstanceTracto(yt.TypedJob):
             logger.info("Finished run_instance")
         logger.info("PodmanDaemon context exited")
 
-        yield TestOutput(
-            instance_id=test_spec.instance_id,
+        test_output = TestOutput(
+            instance_id=test_input.test_spec.instance_id,
             test_output=self._maybe_read_text(log_dir / LOG_TEST_OUTPUT),
             report_json_str=self._maybe_read_text(log_dir / LOG_REPORT),
             run_instance_log=self._maybe_read_text(log_dir / LOG_INSTANCE),
@@ -209,6 +188,7 @@ class RunInstanceTracto(yt.TypedJob):
             operation_id=os.environ["YT_OPERATION_ID"],
             job_id=os.environ["YT_JOB_ID"],
         )
+        yield test_output.model_dump(mode="json")
 
     @staticmethod
     def _maybe_read_text(path: Path) -> str | None:
@@ -263,6 +243,7 @@ def run_instances_tracto(
 
         source_table_rows = [
             TestInput(
+                instance_id=test_spec.instance_id,
                 test_spec=test_spec,
                 prediction=predictions[test_spec.instance_id],
                 run_id=run_id,
@@ -271,10 +252,9 @@ def run_instances_tracto(
             for test_spec in run_test_specs
         ]
         logger.info(f"Writing input table to Tracto at {input_table_path}...")
-        yt.write_table_structured(
-            table=input_table_path,
-            row_type=TestInput,
-            input_stream=source_table_rows,
+        yt.write_table(
+            input_table_path,
+            [row.model_dump(mode="json") for row in source_table_rows],
         )
 
         logger.info("Running map job on Tracto...")
@@ -301,8 +281,8 @@ def run_instances_tracto(
         )
 
         logger.info(f"Collecting job outputs at {output_table_path}...")
-        for result in yt.read_table_structured(output_table_path, TestOutput):
-            result = cast(TestOutput, result)
+        for result_raw in yt.read_table(output_table_path):
+            result = TestOutput.model_validate(result_raw)
 
             log_dir = Path(result.log_dir)
             log_dir.mkdir(parents=True, exist_ok=True)
