@@ -58,10 +58,11 @@ class TestOutput(pydantic.BaseModel):
     instance_id: str
     test_output: str | None
     report_json_str: str | None
-    run_instance_log: str
+    run_instance_log: str | None
     patch_diff: str | None
     log_dir: str
     errored: bool
+    exception: str | None
 
     # job metadata
     operation_id: str
@@ -104,11 +105,9 @@ class PodmanDaemon:
             ],
         )
 
-        self._wait_for_podman()
-
         return self
 
-    def _wait_for_podman(self):
+    def wait_for_podman(self):
         for _ in range(5):
             time.sleep(1)
 
@@ -125,7 +124,11 @@ class PodmanDaemon:
         # podman may spawn multiple processes
         subprocess.run(["pkill", "-SIGTERM", "podman"], check=True)
 
-        self.proc.wait()
+        try:
+            self.proc.wait(1)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["pkill", "-SIGKILL", "podman"], check=True)
+            self.proc.wait()
 
 
 class RunInstanceTracto:
@@ -139,22 +142,23 @@ class RunInstanceTracto:
         )
 
         with PodmanDaemon() as podman_daemon:
-            docker_client = docker.DockerClient(base_url=podman_daemon.socket_url)
-
-            tracto_docker_auth = yson.loads(
-                os.environ["YT_SECURE_VAULT_docker_auth"].encode("utf-8")
-            )
-            docker_client.login(
-                username=tracto_docker_auth["username"],
-                password=tracto_docker_auth["password"],
-                registry=os.environ["TRACTO_REGISTRY_URL"],
-            )
-
-            logger.info("Running run_instance...")
-
-            # TODO: manually pull the image first with proper retries
-
             try:
+                podman_daemon.wait_for_podman()
+
+                docker_client = docker.DockerClient(base_url=podman_daemon.socket_url)
+
+                tracto_docker_auth = yson.loads(
+                    os.environ["YT_SECURE_VAULT_docker_auth"].encode("utf-8")
+                )
+                docker_client.login(
+                    username=tracto_docker_auth["username"],
+                    password=tracto_docker_auth["password"],
+                    registry=os.environ["TRACTO_REGISTRY_URL"],
+                )
+
+                logger.info("Running run_instance...")
+
+                # TODO: manually pull the image first with proper retries
                 run_instance(
                     test_spec=test_input.test_spec,
                     pred=test_input.prediction,
@@ -169,10 +173,12 @@ class RunInstanceTracto:
                     },
                     add_stderr_logger=True,
                 )
-            except Exception:
+            except Exception as e:
                 errored = True
+                exception = str(e)
             else:
                 errored = False
+                exception = None
 
             logger.info("Finished run_instance")
         logger.info("PodmanDaemon context exited")
@@ -185,6 +191,7 @@ class RunInstanceTracto:
             patch_diff=self._maybe_read_text(log_dir / PATCH_DIFF),
             log_dir=str(log_dir),
             errored=errored,
+            exception=exception,
             operation_id=os.environ["YT_OPERATION_ID"],
             job_id=os.environ["YT_JOB_ID"],
         )
@@ -268,6 +275,7 @@ def run_instances_tracto(
                 "mapper": {
                     "docker_image": TRACTO_EVAL_IMAGE,
                     "tmpfs_size": TRACTO_EVAL_TMPFS_SIZE_GB * 1024**3,
+                    "cpu_limit": 2,
                     "environment": {
                         "TRACTO_REGISTRY_URL": get_tracto_registry_url(),
                     },
