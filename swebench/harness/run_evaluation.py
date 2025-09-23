@@ -299,6 +299,7 @@ def main(
                 run_id,
                 timeout,
                 namespace=namespace,
+                instance_image_tag=instance_image_tag,
                 tracto_run_dir=f"{os.environ['TRACTO_EVAL_RUNS_DIR']}/{run_id}",
             )
         return

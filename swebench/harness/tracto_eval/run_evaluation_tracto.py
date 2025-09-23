@@ -212,6 +212,7 @@ def run_instances_tracto(
     timeout: int,
     namespace: str | None,
     tracto_run_dir: str,
+    instance_image_tag: str = "latest",
 ):
     """
     Run all instances for the given predictions on Tracto.
@@ -224,7 +225,10 @@ def run_instances_tracto(
         namespace (str | None):
     """
     logger.info("Creating test specs...")
-    test_specs = [make_test_spec(instance, namespace) for instance in instances]
+    test_specs = [
+        make_test_spec(instance, namespace, instance_image_tag=instance_image_tag)
+        for instance in instances
+    ]
 
     run_test_specs: list[TestSpec] = []
 
@@ -255,6 +259,7 @@ def run_instances_tracto(
                 prediction=predictions[test_spec.instance_id],
                 run_id=run_id,
                 timeout=timeout,
+                instance_image_tag=instance_image_tag,
             )
             for test_spec in run_test_specs
         ]
