@@ -280,7 +280,8 @@ def run_instances_tracto(
                 "mapper": {
                     "docker_image": TRACTO_EVAL_IMAGE,
                     "tmpfs_size": TRACTO_EVAL_TMPFS_SIZE_GB * 1024**3,
-                    "cpu_limit": 2,
+                    # now resources are autoscaled based on CPU requests
+                    "cpu_limit": max(TRACTO_EVAL_TMPFS_SIZE_GB / 4, 1),
                     "environment": {
                         "TRACTO_REGISTRY_URL": get_tracto_registry_url(),
                     },

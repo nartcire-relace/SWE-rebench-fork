@@ -97,7 +97,7 @@ def main(
                     "TRACTO_REGISTRY_URL": tracto_namespace,
                 },
                 # resources are autoscaled based on CPU requests
-                "cpu_limit": TMPFS_SIZE_GB / 4,
+                "cpu_limit": max(TMPFS_SIZE_GB / 4, 1),
             },
             "job_count": max_workers,
             "secure_vault": {
