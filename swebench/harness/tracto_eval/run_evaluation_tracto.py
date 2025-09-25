@@ -10,7 +10,6 @@ from typing import Iterable
 import docker
 import pydantic
 import yt.wrapper as yt
-from yt import yson
 
 from swebench.harness.constants import (
     LOG_INSTANCE,
@@ -25,6 +24,8 @@ from swebench.harness.test_spec.test_spec import TestSpec, make_test_spec
 from swebench.harness.tracto_eval.utils import (
     get_tracto_registry_url,
     logging_basic_config,
+    configure_podman_storage,
+    get_tracto_registry_creds_from_env,
 )
 
 TRACTO_EVAL_IMAGE = os.getenv(
@@ -37,8 +38,7 @@ TRACTO_EVAL_MAX_PARALLEL_JOBS = int(os.getenv("TRACTO_EVAL_MAX_PARALLEL_JOBS", "
 # While setting a very large tmpfs for ALL instances in the dataset is wasteful.
 # TODO: Split the dataset into multiple jobs based on the instance image's size.
 # Or, maybe, retry the failed jobs with larger tmpfs.
-TRACTO_EVAL_TMPFS_SIZE_GB = int(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "48"))
-TRACTO_PODMAN_WORKDIR = Path("/slot/sandbox/tmpfs/podman")
+TRACTO_EVAL_TMPFS_SIZE_GB = float(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "16"))
 
 yt.config["pickling"]["ignore_system_modules"] = True
 yt.config["pickling"]["dynamic_libraries"]["enable_auto_collection"] = False
@@ -123,23 +123,10 @@ class PodmanDaemon:
             self.proc.wait()
 
 
-def configure_containers():
-    storage_conf = f'''
-    [storage]
-    driver = "vfs"
-    runroot = "{TRACTO_PODMAN_WORKDIR}/runroot"
-    graphroot = "{TRACTO_PODMAN_WORKDIR}/root"
-    '''
-
-    Path("/etc/containers/storage.conf").write_text(storage_conf)
-
-    logger.info(f"podman will storage data in {TRACTO_PODMAN_WORKDIR} ")
-
-
 class RunInstanceTracto:
     def __call__(self, test_input_raw: dict) -> Iterable[dict]:
         logging_basic_config()
-        configure_containers()
+        configure_podman_storage()
 
         test_input = TestInput.model_validate(test_input_raw)
 
@@ -153,18 +140,15 @@ class RunInstanceTracto:
 
                 docker_client = docker.DockerClient(base_url=podman_daemon.socket_url)
 
-                tracto_docker_auth = yson.loads(
-                    os.environ["YT_SECURE_VAULT_docker_auth"].encode("utf-8")
-                )
+                tracto_registry_creds = get_tracto_registry_creds_from_env()
                 docker_client.login(
-                    username=tracto_docker_auth["username"],
-                    password=tracto_docker_auth["password"],
+                    username=tracto_registry_creds["username"],
+                    password=tracto_registry_creds["password"],
                     registry=os.environ["TRACTO_REGISTRY_URL"],
                 )
 
                 logger.info("Running run_instance...")
 
-                # TODO: manually pull the image first with proper retries
                 run_instance(
                     test_spec=test_input.test_spec,
                     pred=test_input.prediction,
@@ -181,10 +165,14 @@ class RunInstanceTracto:
                 )
             except Exception as e:
                 errored = True
-                exception = str(e)
+                if isinstance(e, subprocess.CalledProcessError):
+                    exception_text = f"{str(e)}\nstderr:\n{e.stderr}"
+                else:
+                    exception_text = str(e)
+                logger.exception("Exception occured:")
             else:
                 errored = False
-                exception = None
+                exception_text = None
 
             logger.info("Finished run_instance")
         logger.info("PodmanDaemon context exited")
@@ -197,7 +185,7 @@ class RunInstanceTracto:
             patch_diff=self._maybe_read_text(log_dir / PATCH_DIFF),
             log_dir=str(log_dir),
             errored=errored,
-            exception=exception,
+            exception=exception_text,
             operation_id=os.environ["YT_OPERATION_ID"],
             job_id=os.environ["YT_JOB_ID"],
         )
@@ -303,6 +291,13 @@ def run_instances_tracto(
         logger.info(f"Collecting job outputs at {output_table_path}...")
         for result_raw in yt.read_table(output_table_path):
             result = TestOutput.model_validate(result_raw)
+
+            if result.errored:
+                logger.warning(
+                    f"Instance {result.instance_id} errored, "
+                    f"see {result.log_dir} for details. "
+                    f"Exception:\n{result.exception}"
+                )
 
             log_dir = Path(result.log_dir)
             log_dir.mkdir(parents=True, exist_ok=True)
