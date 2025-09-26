@@ -33,12 +33,7 @@ TRACTO_EVAL_IMAGE = os.getenv(
     "cr.turing.yt.nebius.yt/home/llm/sbkarasik/registry/swebench-fork:2025-09-22",
 )
 TRACTO_EVAL_MAX_PARALLEL_JOBS = int(os.getenv("TRACTO_EVAL_MAX_PARALLEL_JOBS", "100"))
-# Some images (e.g. for neurostuff__NiMARE-939, pgmpy__pgmpy-2271) are large and even
-# 32GB tmpfs is not enough to run them.
-# While setting a very large tmpfs for ALL instances in the dataset is wasteful.
-# TODO: Split the dataset into multiple jobs based on the instance image's size.
-# Or, maybe, retry the failed jobs with larger tmpfs.
-TRACTO_EVAL_TMPFS_SIZE_GB = float(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "16"))
+TRACTO_EVAL_TMPFS_SIZE_GB = int(os.getenv("TRACTO_EVAL_TMPFS_SIZE_GB", "16"))
 
 yt.config["pickling"]["ignore_system_modules"] = True
 yt.config["pickling"]["dynamic_libraries"]["enable_auto_collection"] = False
