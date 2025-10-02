@@ -83,7 +83,7 @@ python -m swebench.harness.tracto_eval.import_images_to_tracto \
 
 ### Run evaluation using Tracto
 
-Once SWE-bench-fork is built and SWE instance images are import to Tracto registry, we are good to run evaluations on Tracto.
+Once SWE-bench-fork is built and SWE instance images are imported to Tracto registry, we are good to run evaluations on Tracto.
 
 The same `swebench/harness/run_evaluation.py` can be used, just pass `--tracto yes` to use Tracto as backend.
 
