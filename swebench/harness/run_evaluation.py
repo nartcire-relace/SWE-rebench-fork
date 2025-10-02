@@ -1,57 +1,43 @@
 from __future__ import annotations
 
-import docker
-import json
 import platform
-import traceback
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from pathlib import Path
 
 if platform.system() == "Linux":
     import resource
 
-from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from pathlib import Path, PurePosixPath
+import docker
 
 from swebench.harness.constants import (
-    APPLY_PATCH_FAIL,
-    APPLY_PATCH_PASS,
-    DOCKER_PATCH,
-    DOCKER_USER,
-    DOCKER_WORKDIR,
-    INSTANCE_IMAGE_BUILD_DIR,
     KEY_INSTANCE_ID,
     KEY_MODEL,
     KEY_PREDICTION,
     LOG_REPORT,
-    LOG_INSTANCE,
-    LOG_TEST_OUTPUT,
     RUN_EVALUATION_LOG_DIR,
-    UTF8,
 )
 from swebench.harness.docker_utils import (
     clean_images,
-    cleanup_container,
-    copy_to_container,
-    exec_run_with_timeout,
     list_images,
-    remove_image,
     should_remove,
 )
 from swebench.harness.docker_build import (
-    BuildImageError,
-    build_container,
     build_env_images,
-    close_logger,
-    setup_logger,
 )
-from swebench.harness.grading import get_eval_report
 from swebench.harness.reporting import make_run_report
+from swebench.harness.eval import run_instance
 from swebench.harness.modal_eval import (
     run_instances_modal,
     validate_modal_credentials,
 )
-from swebench.harness.test_spec.test_spec import make_test_spec, TestSpec
+
+from swebench.harness.tracto_eval import (
+    get_tracto_eval_run_dir,
+    run_instances_tracto,
+    validate_tracto_env_vars,
+)
+from swebench.harness.test_spec.test_spec import make_test_spec
 from swebench.harness.utils import (
-    EvaluationError,
     load_swebench_dataset,
     get_predictions_from_file,
     run_threadpool,
@@ -63,203 +49,6 @@ GIT_APPLY_CMDS = [
     "git apply --verbose --reject",
     "patch --batch --fuzz=5 -p1 -i",
 ]
-
-
-def run_instance(
-    test_spec: TestSpec,
-    pred: dict,
-    rm_image: bool,
-    force_rebuild: bool,
-    client: docker.DockerClient,
-    run_id: str,
-    timeout: int | None = None,
-    rewrite_reports: bool = False,
-):
-    """
-    Run a single instance with the given prediction.
-
-    Args:
-        test_spec (TestSpec): TestSpec instance
-        pred (dict): Prediction w/ model_name_or_path, model_patch, instance_id
-        rm_image (bool): Whether to remove the image after running
-        force_rebuild (bool): Whether to force rebuild the image
-        client (docker.DockerClient): Docker client
-        run_id (str): Run ID
-        timeout (int): Timeout for running tests
-        rewrite_reports (bool): True if eval run is just to reformat existing report
-    """
-    # Set up logging directory
-    instance_id = test_spec.instance_id
-    model_name_or_path = pred.get(KEY_MODEL, "None").replace("/", "__")
-    log_dir = RUN_EVALUATION_LOG_DIR / run_id / model_name_or_path / instance_id
-
-    # Set up report file
-    report_path = log_dir / LOG_REPORT
-    if rewrite_reports:
-        test_output_path = log_dir / LOG_TEST_OUTPUT
-        if not test_output_path.exists():
-            raise ValueError(f"Test output file {test_output_path} does not exist")
-        report = get_eval_report(
-            test_spec=test_spec,
-            prediction=pred,
-            test_log_path=test_output_path,
-            include_tests_status=True,
-        )
-        # Write report to report.json
-        with open(report_path, "w") as f:
-            f.write(json.dumps(report, indent=4))
-        return instance_id, report
-    if report_path.exists():
-        return instance_id, json.loads(report_path.read_text())
-
-    if not test_spec.is_remote_image:
-        # Link the image build dir in the log dir
-        build_dir = INSTANCE_IMAGE_BUILD_DIR / test_spec.instance_image_key.replace(
-            ":", "__"
-        )
-        image_build_link = log_dir / "image_build_dir"
-        if not image_build_link.exists():
-            try:
-                # link the image build dir in the log dir
-                image_build_link.symlink_to(
-                    build_dir.absolute(), target_is_directory=True
-                )
-            except:
-                # some error, idk why
-                pass
-
-    # Set up logger
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / LOG_INSTANCE
-    logger = setup_logger(instance_id, log_file)
-
-    # Run the instance
-    container = None
-    try:
-        # Build + start instance container (instance image should already be built)
-        container = build_container(
-            test_spec, client, run_id, logger, rm_image, force_rebuild
-        )
-        container.start()
-        logger.info(f"Container for {instance_id} started: {container.id}")
-
-        # Copy model prediction as patch file to container
-        patch_file = Path(log_dir / "patch.diff")
-        patch_file.write_text(pred[KEY_PREDICTION] or "")
-        logger.info(
-            f"Intermediate patch for {instance_id} written to {patch_file}, now applying to container..."
-        )
-        copy_to_container(container, patch_file, PurePosixPath(DOCKER_PATCH))
-
-        # Attempt to apply patch to container (TODO: FIX THIS)
-        applied_patch = False
-        for git_apply_cmd in GIT_APPLY_CMDS:
-            val = container.exec_run(
-                f"{git_apply_cmd} {DOCKER_PATCH}",
-                workdir=DOCKER_WORKDIR,
-                user=DOCKER_USER,
-            )
-            if val.exit_code == 0:
-                logger.info(f"{APPLY_PATCH_PASS}:\n{val.output.decode(UTF8)}")
-                applied_patch = True
-                break
-            else:
-                logger.info(f"Failed to apply patch to container: {git_apply_cmd}")
-        if not applied_patch:
-            logger.info(f"{APPLY_PATCH_FAIL}:\n{val.output.decode(UTF8)}")
-            raise EvaluationError(
-                instance_id,
-                f"{APPLY_PATCH_FAIL}:\n{val.output.decode(UTF8)}",
-                logger,
-            )
-
-        # Get git diff before running eval script
-        git_diff_output_before = (
-            container.exec_run(
-                "git -c core.fileMode=false diff", workdir=DOCKER_WORKDIR
-            )
-            .output.decode(UTF8)
-            .strip()
-        )
-        logger.info(f"Git diff before:\n{git_diff_output_before}")
-
-        eval_file = Path(log_dir / "eval.sh")
-        eval_file.write_text(test_spec.eval_script)
-        logger.info(
-            f"Eval script for {instance_id} written to {eval_file}; copying to container..."
-        )
-        copy_to_container(container, eval_file, PurePosixPath("/eval.sh"))
-
-        # Run eval script, write output to logs
-        test_output, timed_out, total_runtime = exec_run_with_timeout(
-            container, "/bin/bash /eval.sh", timeout
-        )
-        test_output_path = log_dir / LOG_TEST_OUTPUT
-        logger.info(f"Test runtime: {total_runtime:_.2f} seconds")
-        with open(test_output_path, "w") as f:
-            f.write(test_output)
-            logger.info(f"Test output for {instance_id} written to {test_output_path}")
-            if timed_out:
-                f.write(f"\n\nTimeout error: {timeout} seconds exceeded.")
-                raise EvaluationError(
-                    instance_id,
-                    f"Test timed out after {timeout} seconds.",
-                    logger,
-                )
-
-        # Get git diff after running eval script (ignore permission changes)
-        git_diff_output_after = (
-            container.exec_run(
-                "git -c core.fileMode=false diff", workdir=DOCKER_WORKDIR
-            )
-            .output.decode(UTF8)
-            .strip()
-        )
-
-        # Check if git diff changed after running eval script
-        logger.info(f"Git diff after:\n{git_diff_output_after}")
-        if git_diff_output_after != git_diff_output_before:
-            logger.info("Git diff changed after running eval script")
-
-        # Get report from test output
-        logger.info(f"Grading answer for {instance_id}...")
-        report = get_eval_report(
-            test_spec=test_spec,
-            prediction=pred,
-            test_log_path=test_output_path,
-            include_tests_status=True,
-        )
-        logger.info(
-            f"report: {report}\n"
-            f"Result for {instance_id}: resolved: {report[instance_id]['resolved']}"
-        )
-
-        # Write report to report.json
-        with open(report_path, "w") as f:
-            f.write(json.dumps(report, indent=4))
-        return instance_id, report
-    except EvaluationError as e:
-        error_msg = traceback.format_exc()
-        logger.info(error_msg)
-        print(e)
-    except BuildImageError as e:
-        error_msg = traceback.format_exc()
-        logger.info(error_msg)
-        print(e)
-    except Exception as e:
-        error_msg = (
-            f"Error in evaluating model for {instance_id}: {e}\n"
-            f"{traceback.format_exc()}\n"
-            f"Check ({logger.log_file}) for more information."
-        )
-        logger.error(error_msg)
-    finally:
-        # Remove instance container + image, close logger
-        cleanup_container(client, container, logger)
-        if rm_image:
-            remove_image(client, test_spec.instance_image_key, logger)
-        close_logger(logger)
-    return
 
 
 def run_instances(
@@ -453,6 +242,7 @@ def main(
     namespace: str | None,
     rewrite_reports: bool,
     modal: bool,
+    tracto: bool,
     instance_image_tag: str = "latest",
     report_dir: str = ".",
 ):
@@ -470,6 +260,7 @@ def main(
 
     # set open file limit
     assert len(run_id) > 0, "Run ID must be provided"
+    # TODO: validate run_id as it's used in container name
     if report_dir is not None:
         report_dir = Path(report_dir)
         if not report_dir.exists():
@@ -488,6 +279,9 @@ def main(
     )
     full_dataset = load_swebench_dataset(dataset_name, split, instance_ids)
 
+    if modal and tracto:
+        raise ValueError("Only one of --modal and --tracto can be used.")
+
     if modal:
         # run instances on Modal
         if not dataset:
@@ -495,6 +289,25 @@ def main(
         else:
             validate_modal_credentials()
             run_instances_modal(predictions, dataset, full_dataset, run_id, timeout)
+        return
+
+    if tracto:
+        # run instances on Tracto
+        if not dataset:
+            print("No instances to run.")
+        else:
+            validate_tracto_env_vars()
+
+            run_instances_tracto(
+                predictions,
+                dataset,
+                full_dataset,
+                run_id,
+                timeout,
+                namespace=namespace,
+                instance_image_tag=instance_image_tag,
+                tracto_run_dir=get_tracto_eval_run_dir(run_id),
+            )
         return
 
     # run instances locally
@@ -612,6 +425,9 @@ if __name__ == "__main__":
 
     # Modal execution args
     parser.add_argument("--modal", type=str2bool, default=False, help="Run on Modal")
+
+    # Traco execution args
+    parser.add_argument("--tracto", type=str2bool, default=False, help="Run on Tracto")
 
     args = parser.parse_args()
     main(**vars(args))

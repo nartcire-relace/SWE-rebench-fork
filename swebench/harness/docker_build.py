@@ -39,7 +39,13 @@ class BuildImageError(Exception):
         )
 
 
-def setup_logger(instance_id: str, log_file: Path, mode="w", add_stdout: bool = False):
+def setup_logger(
+    instance_id: str,
+    log_file: Path,
+    mode="w",
+    add_stdout: bool = False,
+    add_stderr: bool = False,
+):
     """
     This logger is used for logging the build process of images and containers.
     It writes logs to the log file.
@@ -56,8 +62,15 @@ def setup_logger(instance_id: str, log_file: Path, mode="w", add_stdout: bool = 
     logger.setLevel(logging.INFO)
     logger.propagate = False
     setattr(logger, "log_file", log_file)
+
+    extra_streams = []
     if add_stdout:
-        handler = logging.StreamHandler(sys.stdout)
+        extra_streams.append(sys.stdout)
+    if add_stderr:
+        extra_streams.append(sys.stderr)
+
+    for stream in extra_streams:
+        handler = logging.StreamHandler(stream)
         formatter = logging.Formatter(
             f"%(asctime)s - {instance_id} - %(levelname)s - %(message)s"
         )
@@ -144,9 +157,7 @@ def build_image(
                 buildlog += chunk_stream
             elif "errorDetail" in chunk:
                 # Decode error message, raise BuildError
-                logger.error(
-                    f"Error: {ansi_escape(chunk['errorDetail']['message'])}"
-                )
+                logger.error(f"Error: {ansi_escape(chunk['errorDetail']['message'])}")
                 raise docker.errors.BuildError(
                     chunk["errorDetail"]["message"], buildlog
                 )
@@ -437,6 +448,7 @@ def build_container(
     logger: logging.Logger,
     nocache: bool,
     force_rebuild: bool = False,
+    container_kwargs: dict | None = None,
 ):
     """
     Builds the instance image for the given test spec and creates a container from the image.
@@ -484,6 +496,7 @@ def build_container(
             command="tail -f /dev/null",
             platform=test_spec.platform,
             cap_add=cap_add,
+            **(container_kwargs or {}),
         )
         logger.info(f"Container for {test_spec.instance_id} created: {container.id}")
         return container

@@ -31,8 +31,8 @@ swebench_image = modal.Image.debian_slim().pip_install("swebench", "tenacity")
 from swebench.harness.constants import (
     APPLY_PATCH_FAIL,
     APPLY_PATCH_PASS,
-    RUN_EVALUATION_LOG_DIR,
 )
+from swebench.harness.eval import get_log_dir
 from swebench.harness.grading import get_eval_report
 from swebench.harness.test_spec.test_spec import make_test_spec, TestSpec
 
@@ -198,8 +198,12 @@ class ModalSandboxRuntime:
                 "/opt/miniconda3/bin/conda config --append channels conda-forge",
                 "adduser --disabled-password --gecos 'dog' nonroot",
             )
-            .copy_local_file(Path(remote_env_script_path), remote_env_script_path)
-            .copy_local_file(Path(remote_repo_script_path), remote_repo_script_path)
+            .add_local_file(
+                Path(remote_env_script_path), remote_env_script_path, copy=True
+            )
+            .add_local_file(
+                Path(remote_repo_script_path), remote_repo_script_path, copy=True
+            )
             .run_commands(
                 f"chmod +x {remote_env_script_path}",
                 f"/bin/bash -c 'source ~/.bashrc && {remote_env_script_path}'",
@@ -208,13 +212,6 @@ class ModalSandboxRuntime:
             )
             .workdir("/testbed/")
         )
-
-
-def get_log_dir(pred: dict, run_id: str, instance_id: str) -> Path:
-    model_name_or_path = cast(
-        str, pred.get("model_name_or_path", "None").replace("/", "__")
-    )
-    return RUN_EVALUATION_LOG_DIR / run_id / model_name_or_path / instance_id
 
 
 @app.function(
