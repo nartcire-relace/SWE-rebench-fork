@@ -31,7 +31,7 @@ python -m swebench.harness.run_evaluation \
 
 [TractoAI](https://tracto.ai) is a unified compute platform for AI and data workloads.
 
-We provide support of TractoAI as scalable drop-in backend for SWE-bench eval -- just add `--tracto yes`. It can be used to evaluate any SWE-bench-compatible tasks, including SWE-rebench -- the only requirement is pre-built Docker images.
+We provide support of TractoAI as a scalable drop-in backend for SWE-bench eval -- just add `--tracto yes`. It can be used to evaluate any SWE-bench-compatible tasks, including SWE-rebench -- the only requirement is pre-built Docker images.
 
 Unlike local Docker backend, TractoAI scales horizontally with the cluster size and is able to evaluate hundreds of patches in parallel.
 
