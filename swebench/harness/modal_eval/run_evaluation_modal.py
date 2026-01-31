@@ -26,12 +26,23 @@ REMOTE_SANDBOX_ENTRYPOINT_PATH = f"/root/{SANDBOX_ENTRYPOINT}.py"
 
 app = modal.App("swebench-evaluation")
 
-swebench_image = (
-    modal.Image.debian_slim()
-    .pip_install("uv")
-    .copy_local_dir(str(Path(__file__).resolve().parents[3]), "/root/swebench")
-    .run_commands("cd /root/swebench && uv pip install --system . && uv pip install --system ytsaurus-client ytsaurus-yson")
-)
+swebench_image = modal.Image.debian_slim().pip_install("swebench", "tenacity", "pydantic", "beautifulsoup4",
+    "chardet",
+    "datasets",
+    "docker",
+    "ghapi",
+    "GitPython",
+    "modal",
+    "pre-commit",
+    "python-dotenv",
+    "requests",
+    "rich",
+    "tqdm",
+    "unidiff",
+    "ytsaurus-client",
+    "ytsaurus-yson",
+    "yt")
+
 
 from swebench.harness.constants import (
     APPLY_PATCH_FAIL,
