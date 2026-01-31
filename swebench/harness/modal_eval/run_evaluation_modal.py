@@ -30,7 +30,7 @@ swebench_image = (
     modal.Image.debian_slim()
     .pip_install("uv")
     .copy_local_dir(str(Path(__file__).resolve().parents[3]), "/root/swebench")
-    .run_commands("cd /root/swebench && uv pip install --system .")
+    .run_commands("cd /root/swebench && uv pip install --system . && uv pip install --system ytsaurus-client ytsaurus-yson")
 )
 
 from swebench.harness.constants import (
