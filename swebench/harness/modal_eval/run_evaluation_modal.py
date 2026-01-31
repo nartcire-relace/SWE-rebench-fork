@@ -26,22 +26,7 @@ REMOTE_SANDBOX_ENTRYPOINT_PATH = f"/root/{SANDBOX_ENTRYPOINT}.py"
 
 app = modal.App("swebench-evaluation")
 
-swebench_image = modal.Image.debian_slim().pip_install("swebench", "tenacity", "pydantic", "beautifulsoup4",
-    "chardet",
-    "datasets",
-    "docker",
-    "ghapi",
-    "GitPython",
-    "modal",
-    "pre-commit",
-    "python-dotenv",
-    "requests",
-    "rich",
-    "tqdm",
-    "unidiff",
-    "ytsaurus-client",
-    "ytsaurus-yson",
-    "yt")
+swebench_image = modal.Image.debian_slim().pip_install("swebench", "tenacity", "pydantic", "yt")
 
 
 from swebench.harness.constants import (
@@ -94,7 +79,7 @@ class ModalSandboxRuntime:
 
         return modal.Sandbox.create(
             image=self.image.add_local_file(
-                REMOTE_SANDBOX_ENTRYPOINT_PATH,
+                LOCAL_SANDBOX_ENTRYPOINT_PATH,
                 REMOTE_SANDBOX_ENTRYPOINT_PATH,
             ),
             timeout=timeout,
