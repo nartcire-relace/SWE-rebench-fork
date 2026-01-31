@@ -31,11 +31,14 @@ from swebench.harness.modal_eval import (
     validate_modal_credentials,
 )
 
-from swebench.harness.tracto_eval import (
-    get_tracto_eval_run_dir,
-    run_instances_tracto,
-    validate_tracto_env_vars,
-)
+try:
+    from swebench.harness.tracto_eval import (
+        get_tracto_eval_run_dir,
+        run_instances_tracto,
+        validate_tracto_env_vars,
+    )
+except ImportError:
+    pass
 from swebench.harness.test_spec.test_spec import make_test_spec
 from swebench.harness.utils import (
     load_swebench_dataset,
